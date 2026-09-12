@@ -1,7 +1,8 @@
-﻿using System.Collections.Generic;
-using System.Linq;
-using ScottPlot;
+﻿using ScottPlot;
 using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 
 namespace ReportTestts
 {
@@ -9,122 +10,218 @@ namespace ReportTestts
     {
         public static void SaveDVHPlot(
             List<DVHResult> dvhs,
-            string outputPath)
+            string outputPath,
+            Dictionary<string, double> ptvRxDoses = null)
         {
-            var plot = new Plot();
+            if (dvhs == null || dvhs.Count == 0)
+                return;
 
-            // ================== DVH CURVES ==================
-            // Соберём список OAR (те, которым нужны уникальные цвета)
-            var oarList = dvhs
-                .Where(dvh => dvh.CumulativeDVH != null && dvh.CumulativeDVH.Count > 0)
-                .Select(dvh => dvh.Structure)
-                .Where(name => !name.Contains("CTV", StringComparison.OrdinalIgnoreCase)
-                               && !name.Contains("GTV", StringComparison.OrdinalIgnoreCase)
-                               && !name.Contains("PTV", StringComparison.OrdinalIgnoreCase)
-                               && !name.Equals("Patient", StringComparison.OrdinalIgnoreCase))
-                .Distinct()
+            string baseDir = Path.GetDirectoryName(outputPath)!;
+            Directory.CreateDirectory(baseDir);
+
+            string dvhTemp = Path.Combine(baseDir, Path.GetFileNameWithoutExtension(outputPath) + "_dvh.png");
+            string legendTemp = Path.Combine(baseDir, Path.GetFileNameWithoutExtension(outputPath) + "_legend.png");
+
+            // =========================
+            // UNIQUE STRUCTURES
+            // =========================
+            var uniqueDvhs = dvhs
+                .GroupBy(d => d.Structure, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
                 .ToList();
 
-            var colors = GenerateColors(Math.Max(1, oarList.Count));
-            int colorIndex = 0;
+            // =========================
+            // MAIN DVH
+            // =========================
+            var plot = new Plot();
 
-            foreach (var dvh in dvhs)
+            plot.Title("Кумулятивная DVH", size: 32);
+            plot.XLabel("Доза (Гр)", size: 26);
+            plot.YLabel("Объём (%)", size: 26);
+
+            plot.Axes.Bottom.TickLabelStyle.FontSize = 18;
+            plot.Axes.Left.TickLabelStyle.FontSize = 18;
+
+            double maxDose = uniqueDvhs
+                .SelectMany(d => d.CumulativeDVH.Keys)
+                .DefaultIfEmpty(0)
+                .Max();
+
+            plot.Axes.SetLimits(0, maxDose * 1.05, 0, 100);
+            plot.Grid.IsVisible = true;
+
+            // =========================
+            // CURVES + Rx LINES
+            // =========================
+            var ptvRxLines = new Dictionary<string, ScottPlot.Color>(); // Отслеживаем цвета Rx линий
+            var ptvColors = new Dictionary<string, ScottPlot.Color>(); // Отслеживаем цвета PTV кривых
+            
+            foreach (var dvh in uniqueDvhs)
             {
-                if (dvh.CumulativeDVH == null || dvh.CumulativeDVH.Count == 0)
-                    continue;
+                double[] xs = dvh.CumulativeDVH.Keys.ToArray();
+                double[] ys = dvh.CumulativeDVH.Values.ToArray();
 
-                string name = dvh.Structure;
+                var curve = plot.Add.Scatter(xs, ys);
+                curve.LineWidth = 2;
 
-                // исключаем CTV и GTV
-                if (name.Contains("CTV", System.StringComparison.OrdinalIgnoreCase) ||
-                    name.Contains("GTV", System.StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                var ordered = dvh.CumulativeDVH
-                    .OrderBy(p => p.Key)
-                    .ToList();
-
-                double[] dose = ordered.Select(p => p.Key).ToArray();
-                double[] volume = ordered.Select(p => p.Value).ToArray();
-
-                var scatter = plot.Add.Scatter(dose, volume);
-                scatter.LegendText = name;
-
-                // стили по типу структуры
-                if (name.Contains("PTV", System.StringComparison.OrdinalIgnoreCase))
+                if (dvh.Structure.Equals("Patient", StringComparison.OrdinalIgnoreCase))
                 {
-                    scatter.Color = Colors.Red;
-                    scatter.LineWidth = 3;
+                    curve.Color = new ScottPlot.Color(139, 69, 19); // brown
+                    curve.LineWidth = 1;
                 }
-                else if (name.Equals("Patient", System.StringComparison.OrdinalIgnoreCase))
+                else if (dvh.Structure.Contains("PTV", StringComparison.OrdinalIgnoreCase))
                 {
-                    scatter.Color = Colors.Brown;
-                    scatter.LineWidth = 2;
-                    scatter.LinePattern = LinePattern.Dashed;
-                }
-                else
-                {
-                    // OAR: уникальные цвета, тонкая линия
-                    scatter.Color = colors[colorIndex % colors.Length];
-                    scatter.LineWidth = 1;
-                    colorIndex++;
+                    // Назначаем разные цвета для каждого PTV
+                    var ptvColor = GetPTVColor(ptvColors.Count);
+                    curve.Color = ptvColor;
+                    curve.LineWidth = 3;
+                    ptvColors[dvh.Structure] = ptvColor;
+
+                    // Rx доза для данного PTV
+                    double rxDoseGy = 0;
+                    if (ptvRxDoses != null && ptvRxDoses.TryGetValue(dvh.Structure, out var rx))
+                    {
+                        rxDoseGy = rx;
+                    }
+                    else if (dvh.RxDoseGy.HasValue)
+                    {
+                        rxDoseGy = dvh.RxDoseGy.Value;
+                    }
+
+                    if (rxDoseGy > 0)
+                    {
+                        ptvRxLines[dvh.Structure] = ptvColor;
+                        
+                        plot.Add.VerticalLine(
+                            rxDoseGy,
+                            color: ptvColor,
+                            width: 2,
+                            pattern: LinePattern.Dashed);
+                    }
                 }
             }
 
-            // ================== AXES ==================
-            plot.Title("Кумулятивная DVH");
-            plot.XLabel("Доза (Гр)");
-            plot.YLabel("Объём (%)");
+            plot.SavePng(dvhTemp, 1600, 1000);
 
-            plot.Axes.SetLimits(
-                double.NaN,
-                double.NaN,
-                0,
-                100);
+            // =========================
+            // LEGEND (2 COLUMNS)
+            // =========================
+            var legend = new Plot();
 
-            // ================== LEGEND ==================
-            plot.ShowLegend(Edge.Bottom);
-            plot.Legend.Orientation = Orientation.Horizontal;
-            plot.Legend.FontSize = 10;
-            plot.Legend.Location = Alignment.LowerCenter;
+            legend.Axes.Bottom.IsVisible = false;
+            legend.Axes.Left.IsVisible = false;
+            legend.Axes.Right.IsVisible = false;
+            legend.Axes.Top.IsVisible = false;
+            legend.Grid.IsVisible = false;
 
-            plot.Legend.Margin = new PixelPadding(0, 0, 10, 0); // смещение вниз
+            int rows = (int)Math.Ceiling(uniqueDvhs.Count / 2.0);
+            // Увеличиваем высоту.legend`Legend` с учетом количества PTV для Rx
+            int ptvCount = uniqueDvhs.Count(d => d.Structure.Contains("PTV", StringComparison.OrdinalIgnoreCase));
+            legend.Axes.SetLimits(0, 2, -(ptvCount + 1), rows + 1);
 
-            // ================== SAVE ==================
-            plot.SavePng(outputPath, 900, 750);
-        }
-
-        // Генерация N отличимых цветов через равномерное распределение по hue (HSV -> RGB)
-        private static ScottPlot.Color[] GenerateColors(int count)
-        {
-            var result = new ScottPlot.Color[count];
-            for (int i = 0; i < count; i++)
+            int index = 0;
+            double minRow = rows; // Отслеживаем минимальную строку
+            
+            foreach (var dvh in uniqueDvhs)
             {
-                double hue = (360.0 * i) / count;
-                result[i] = HsvToColor(hue, 0.65, 0.95);
+                int col = index % 2;
+                int row = rows - index / 2;
+                minRow = Math.Min(minRow, row);
+
+                double x0 = col == 0 ? 0.1 : 1.1;
+                double x1 = x0 + 0.25;
+
+                var line = legend.Add.Line(x0, row, x1, row);
+                line.LineWidth = 4;
+
+                if (dvh.Structure.Equals("Patient", StringComparison.OrdinalIgnoreCase))
+                {
+                    line.Color = new ScottPlot.Color(139, 69, 19);
+                }
+                else if (dvh.Structure.Contains("PTV", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Используем цвет из словаря ptvColors, который уже установлен для этого PTV
+                    line.Color = ptvColors[dvh.Structure];
+                }
+
+                var text = legend.Add.Text(
+                  dvh.Structure,
+                  x1 + 0.05,
+                  row);
+
+                text.FontSize = 25;
+
+                index++;
             }
-            return result;
+
+            // Добавить обозначение Rx дозы для каждого PTV
+            var ptvsWithRx = uniqueDvhs
+                .Where(d => d.Structure.Contains("PTV", StringComparison.OrdinalIgnoreCase))
+                .Where(d => ptvRxDoses != null && ptvRxDoses.ContainsKey(d.Structure))
+                .ToList();
+
+            double rxStartY = minRow - 1.5;
+            for (int i = 0; i < ptvsWithRx.Count; i++)
+            {
+                double rxY = rxStartY - (i * 1);
+
+                var rxLine = legend.Add.Line(0.1, rxY, 0.35, rxY);
+                rxLine.LineWidth = 2;
+                rxLine.Color = ptvRxLines[ptvsWithRx[i].Structure];
+                rxLine.LinePattern = LinePattern.Dashed;
+
+                string rxLabel = $"СД ({ptvsWithRx[i].Structure})";
+                var rxText = legend.Add.Text(rxLabel, 0.4, rxY);
+                rxText.FontSize = 25;
+            }
+
+            legend.SavePng(legendTemp, 1600, 350);
+
+            // =========================
+            // MERGE IMAGES
+            // =========================
+            using var mainImg = System.Drawing.Image.FromFile(dvhTemp);
+            using var legImg = System.Drawing.Image.FromFile(legendTemp);
+
+            int spacing = 20;
+            int width = Math.Max(mainImg.Width, legImg.Width);
+            int height = mainImg.Height + spacing + legImg.Height;
+
+            using var finalBmp = new System.Drawing.Bitmap(width, height);
+            using var g = System.Drawing.Graphics.FromImage(finalBmp);
+
+            g.Clear(System.Drawing.Color.White);
+            g.DrawImage(mainImg, (width - mainImg.Width) / 2, 0);
+            g.DrawImage(legImg, (width - legImg.Width) / 2, mainImg.Height + spacing);
+
+            finalBmp.Save(outputPath, System.Drawing.Imaging.ImageFormat.Png);
+
+            TryDelete(dvhTemp);
+            TryDelete(legendTemp);
         }
 
-        private static ScottPlot.Color HsvToColor(double h, double s, double v)
+        private static void TryDelete(string path)
         {
-            double c = v * s;
-            double hh = h / 60.0;
-            double x = c * (1 - Math.Abs(hh % 2 - 1));
-            double r1 = 0, g1 = 0, b1 = 0;
+            try { if (File.Exists(path)) File.Delete(path); }
+            catch { }
+        }
 
-            if (hh >= 0 && hh < 1) { r1 = c; g1 = x; b1 = 0; }
-            else if (hh >= 1 && hh < 2) { r1 = x; g1 = c; b1 = 0; }
-            else if (hh >= 2 && hh < 3) { r1 = 0; g1 = c; b1 = x; }
-            else if (hh >= 3 && hh < 4) { r1 = 0; g1 = x; b1 = c; }
-            else if (hh >= 4 && hh < 5) { r1 = x; g1 = 0; b1 = c; }
-            else { r1 = c; g1 = 0; b1 = x; }
+        private static ScottPlot.Color GetPTVColor(int index)
+        {
+            // Палитра различных цветов для PTV структур
+            var colors = new[]
+            {
+                ScottPlot.Colors.Red,
+                ScottPlot.Colors.Blue,
+                ScottPlot.Colors.Green,
+                ScottPlot.Colors.Orange,
+                ScottPlot.Colors.Purple,
+                ScottPlot.Colors.Brown,
+                ScottPlot.Colors.Pink,
+                ScottPlot.Colors.Cyan
+            };
 
-            double m = v - c;
-            int r = (int)Math.Round((r1 + m) * 255);
-            int g = (int)Math.Round((g1 + m) * 255);
-            int b = (int)Math.Round((b1 + m) * 255);
-            return new ScottPlot.Color(r, g, b);
+            return colors[index % colors.Length];
         }
     }
 }

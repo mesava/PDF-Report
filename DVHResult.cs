@@ -34,6 +34,11 @@ namespace ReportTestts
         /// </summary>
         public double Max { get; set; }
 
+        /// <summary>
+        /// Предписанная доза (Rx) в Gy (если применимо для PTV)
+        /// </summary>
+        public double? RxDoseGy { get; set; }
+
         // =====================================================
         // Convenience DVH metrics
         // =====================================================

@@ -1,16 +1,51 @@
 ﻿namespace ReportTestts
 {
     /// <summary>
-    /// Один dosimetric criterion (PASS / FAIL)
+    /// Результат проверки одного клинического критерия
+    /// (PTV или OAR)
     /// </summary>
     public class PassFailResult
     {
-        public string Metric { get; set; }   // D95, D2 и т.п.
-        public double Value { get; set; }    // численное значение
-        public string Unit { get; set; }     // Гр, %, см3
-        public bool IsPass { get; set; }     // PASS / FAIL
-        public string Criterion { get; set; }    // "D95 ≥ 95% Rx"
-        public string Source { get; set; }       // ICRU / RTOG / Local
-        public string Comment { get; set; }  // пояснение
+        /// <summary>
+        /// Метрика (Dmax, Dmean, D95, V20Gy и т.п.)
+        /// </summary>
+        public string Metric { get; set; }
+
+        /// <summary>
+        /// Строка критерия, например:
+        /// "V25Gy ≤ 200 cm³"
+        /// </summary>
+        public string Criterion { get; set; }
+
+        /// <summary>
+        /// Актуальное рассчитанное значение
+        /// (например 243)
+        /// </summary>
+        public double ActualValue { get; set; }
+
+        /// <summary>
+        /// Единицы измерения (Gy, %, cm³)
+        /// </summary>
+        public string Unit { get; set; }
+
+        /// <summary>
+        /// Прошел / не прошел
+        /// </summary>
+        public bool IsPass { get; set; }
+
+        /// <summary>
+        /// Предупреждение / Без предупреждения
+        /// </summary>
+        public bool IsWarning { get; set; }
+
+        /// <summary>
+        /// Источник (Monaco)
+        /// </summary>
+        public string Source { get; set; }
+
+        /// <summary>
+        /// Комментарий (опционально)
+        /// </summary>
+        public string Comment { get; set; }
     }
 }
