@@ -26,7 +26,7 @@ namespace ReportTestts
         // ============================================================
         // STRUCTURE DVH (REAL RTSTRUCT)
         // ============================================================
-        public static DVHResult CalculateStructure(
+        public static DVHResult? CalculateStructure(
             DicomDoseVolume dose,
             DicomStructureSet.Structure structure)
         {
@@ -43,7 +43,7 @@ namespace ReportTestts
 
                 var slice = structure.Slices
                     .OrderBy(s => Math.Abs(s.Z - z))
-                    .FirstOrDefault(s => Math.Abs(s.Z - z) < 1.0);
+                    .FirstOrDefault(s => Math.Abs(s.Z - z) < 2.5);
 
                 if (slice == null)
                     continue;
@@ -59,8 +59,12 @@ namespace ReportTestts
             }
 
             if (!doses.Any())
-                throw new InvalidOperationException(
-                    $"No voxels found for structure {structure.Name}");
+            {
+                Console.WriteLine(
+                    $"[DVH WARNING] No voxels found for structure {structure.Name}");
+
+                return null;
+            }
 
             return BuildDVH(structure.Name, doses, voxelVolumeCm3);
         }
