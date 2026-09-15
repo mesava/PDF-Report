@@ -2,9 +2,9 @@
 
 Консольное приложение на **C# / .NET 8** для анализа DICOM-данных плана лучевой терапии и формирования PDF-отчёта в стиле Monaco.
 
-Программа читает `RTPLAN`, `RTDOSE` и `RTSTRUCT`, рассчитывает кумулятивные DVH, дозиметрические показатели PTV, проверяет критерии органов риска из Monaco JSON, строит DVH-график и формирует итоговый многостраничный PDF через QuestPDF.
+Программа читает `RTPLAN`, `RTDOSE` и `RTSTRUCT`, рассчитывает кумулятивные DVH и дозиметрические показатели PTV, проверяет критерии для органов риска из Monaco JSON, строит DVH-график и формирует итоговый многостраничный PDF через QuestPDF.
 
-> **Статус:** рабочий прототип в активной разработке. Перед использованием результатов в клиническом процессе требуется локальная валидация расчётов и сопоставление с TPS.
+> **Статус проекта:** рабочий прототип в активной разработке. Перед использованием результатов в клиническом процессе требуется локальная валидация расчётов и сопоставление с TPS.
 
 ## Возможности
 
@@ -13,13 +13,13 @@
 - чтение ROI-контуров из RTSTRUCT;
 - чтение параметров полей, MU и фракционирования из RTPLAN;
 - воксельный расчёт кумулятивного DVH;
-- пропуск структур, для которых на дозовой сетке не найдено ни одного вокселя, без аварийного завершения всей обработки;
+- пропуск структур, для которых на дозовой сетке не найдено ни одного подходящего вокселя, без аварийного завершения всей обработки;
 - расчёт PTV-метрик: `D2`, `D5`, `D50`, `D95`, `D98`, `HI (ICRU)`, `HI (D5/D95)`, `CI`, `GI`;
 - импорт dose goals из Monaco JSON;
 - оценка OAR-критериев `Dmax`, `Dmean`, `Dxx%`, `Dxx cm³`, `VxGy`;
 - статусы Pass / Warning / Fail;
 - построение DVH-графика с отдельными кривыми структур и Rx-линиями PTV;
-- генерация PDF-отчёта с полями, PTV, OAR, DVH, комментариями и подписями.
+- генерация PDF-отчёта с параметрами полей, PTV, OAR, DVH, комментариями и подписями.
 
 ## Текущий pipeline
 
@@ -106,7 +106,7 @@ Program.cs                      orchestration / CLI
 DicomDoseVolume.cs              RTDOSE
 DicomStructureSet.cs            RTSTRUCT
 DicomPlanReader.cs              RTPLAN beams / MU
-DicomPrescriptionExtractor.cs   RTPLAN prescription/fractions
+DicomPrescriptionExtractor.cs   RTPLAN prescription / fractions
 DoseReferenceReader.cs          DoseReferenceSequence reader
 
 DVHCalculator.cs                voxel-based DVH calculation
@@ -123,7 +123,7 @@ MonacoCriteriaModels.cs         Monaco JSON DTO
 OarCriterion.cs                 OAR criterion model
 OarClinicalRules.cs             active OAR evaluator
 
-DoseConstraint.cs               alternative/legacy constraint model
+DoseConstraint.cs               alternative / legacy constraint model
 JsonCriteriaParser.cs           parser for DoseConstraint
 OarCriteriaEvaluator.cs         evaluator for DoseConstraint
 
@@ -133,8 +133,6 @@ PassFailResult.cs               criterion evaluation result
 ```
 
 ## Зависимости
-
-Проект использует:
 
 - .NET 8;
 - `fo-dicom 5.2.5`;
@@ -159,23 +157,23 @@ PassFailResult.cs               criterion evaluation result
 
 PDF и PNG с DVH сохраняются на рабочий стол.
 
-## Пример отчёта
+## Пример получаемого отчёта
 
-> **Важно:** пример ниже является демонстрационным. Все ФИО, ID пациента, подписи и остальные персональные/медицинские данные в примере являются случайными (рандомными) и используются только для демонстрации внешнего вида отчёта. Они не относятся к реальному пациенту и не должны использоваться для клинической интерпретации.
+> **Важно:** представленный ниже отчёт является исключительно демонстрационным примером внешнего вида. **Все ФИО, ID пациента, подписи, даты, дозы, дозиметрические показатели и другие персональные или медицинские данные в примере являются случайными (рандомными).** Они не относятся к реальному пациенту и не предназначены для клинической интерпретации.
 
-[Открыть полный пример PDF](examples/sample-report.pdf)
+**[📄 Открыть пример отчёта целиком в PDF](examples/sample-report.pdf)**
 
-### Страница 1
+### Страница 1 — параметры плана, PTV и органы риска
 
-![Пример отчёта — страница 1](examples/images/sample-report-page-1.svg)
+[![Пример отчёта — страница 1](examples/sample-report-page-1.jpg)](examples/sample-report-page-1.jpg)
 
-### Страница 2 — DVH
+### Страница 2 — органы риска и DVH
 
-![Пример отчёта — страница 2](examples/images/sample-report-page-2.svg)
+[![Пример отчёта — страница 2](examples/sample-report-page-2.jpg)](examples/sample-report-page-2.jpg)
 
 ### Страница 3 — комментарии и подписи
 
-![Пример отчёта — страница 3](examples/images/sample-report-page-3.svg)
+[![Пример отчёта — страница 3](examples/sample-report-page-3.jpg)](examples/sample-report-page-3.jpg)
 
 ## Известные ограничения и технический долг
 
@@ -187,13 +185,11 @@ PDF и PNG с DVH сохраняются на рабочий стол.
 - DVH строится на дискретной сетке bins, поэтому точность метрик зависит от текущего алгоритма дискретизации;
 - обработка сложной ROI-геометрии и нескольких контуров на одном Z требует отдельной валидации;
 - CI/GI и остальные метрики необходимо систематически сравнивать с результатами Monaco на репрезентативном наборе планов;
-- пока нет автоматических unit/integration tests и CI-сборки.
+- пока нет полноценного набора автоматических unit/integration tests и CI-сборки расчётного ядра.
 
 ## План развития
 
 Ближайшее архитектурное направление — выделение application layer, чтобы `Program` отвечал только за ввод/вывод и запуск use-case.
-
-Целевая идея:
 
 ```text
 CLI
