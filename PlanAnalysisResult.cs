@@ -17,4 +17,5 @@ public sealed class PlanAnalysisResult
     public required string DosePath { get; init; }
     public required string StructPath { get; init; }
     public required string JsonPath { get; init; }
+    public double ContourPlaneToleranceMm { get; init; }
 }
