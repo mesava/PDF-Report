@@ -70,32 +70,59 @@ namespace ReportTestts
             {
                 double z = dose.Origin[2] + dose.ZOffsets[k];
 
-                var nearest = structure.Slices
-                    .Select(s => new
-                    {
-                        Slice = s,
-                        DistanceMm = Math.Abs(s.Z - z)
-                    })
-                    .OrderBy(x => x.DistanceMm)
-                    .FirstOrDefault();
+                DicomStructureSet.ContourSlice? nearestSlice = null;
+                double nearestDistanceMm = double.MaxValue;
 
-                if (nearest == null || nearest.DistanceMm >= contourPlaneToleranceMm)
+                // Manual nearest-slice search preserves the previous stable tie behaviour
+                // while avoiding LINQ allocations for every dose frame.
+                foreach (var candidate in structure.Slices)
+                {
+                    double distanceMm = Math.Abs(candidate.Z - z);
+                    if (distanceMm < nearestDistanceMm)
+                    {
+                        nearestDistanceMm = distanceMm;
+                        nearestSlice = candidate;
+                    }
+                }
+
+                if (nearestSlice == null || nearestDistanceMm >= contourPlaneToleranceMm)
                     continue;
 
                 matchedDosePlanes++;
-                sumPlaneDistanceMm += nearest.DistanceMm;
-                maxPlaneDistanceMm = Math.Max(maxPlaneDistanceMm, nearest.DistanceMm);
+                sumPlaneDistanceMm += nearestDistanceMm;
+                maxPlaneDistanceMm = Math.Max(maxPlaneDistanceMm, nearestDistanceMm);
 
-                var slice = nearest.Slice;
+                var bounds = GetPolygonBounds(nearestSlice.Polygon);
 
                 for (int i = 0; i < dose.Rows; i++)
+                {
                     for (int j = 0; j < dose.Columns; j++)
                     {
-                        var p = dose.GetVoxelCenter(k, i, j);
+                        // Same patient-coordinate expression as GetVoxelCenter(),
+                        // but without allocating a new double[] for every voxel.
+                        double x = dose.Origin[0]
+                            + j * dose.Dx * dose.RowDir[0]
+                            + i * dose.Dy * dose.ColDir[0]
+                            + dose.ZOffsets[k] * dose.SliceDir[0];
 
-                        if (PointInPolygon(p[0], p[1], slice.Polygon))
+                        double y = dose.Origin[1]
+                            + j * dose.Dx * dose.RowDir[1]
+                            + i * dose.Dy * dose.ColDir[1]
+                            + dose.ZOffsets[k] * dose.SliceDir[1];
+
+                        // A polygon can contain a point only inside its axis-aligned
+                        // patient-coordinate bounding box. This skips expensive
+                        // PointInPolygon calls without changing which voxels are accepted.
+                        if (x < bounds.MinX || x > bounds.MaxX ||
+                            y < bounds.MinY || y > bounds.MaxY)
+                        {
+                            continue;
+                        }
+
+                        if (PointInPolygon(x, y, nearestSlice.Polygon))
                             doses.Add(dose.DoseGy[k, i, j]);
                     }
+                }
             }
 
             geometryDiagnostics = new DvhPlaneMatchDiagnostics(
@@ -158,6 +185,25 @@ namespace ReportTestts
             return dvh;
         }
 
+        private static PolygonBounds GetPolygonBounds(
+            List<(double X, double Y)> polygon)
+        {
+            double minX = double.PositiveInfinity;
+            double maxX = double.NegativeInfinity;
+            double minY = double.PositiveInfinity;
+            double maxY = double.NegativeInfinity;
+
+            foreach (var point in polygon)
+            {
+                if (point.X < minX) minX = point.X;
+                if (point.X > maxX) maxX = point.X;
+                if (point.Y < minY) minY = point.Y;
+                if (point.Y > maxY) maxY = point.Y;
+            }
+
+            return new PolygonBounds(minX, maxX, minY, maxY);
+        }
+
         private static bool PointInPolygon(
             double x,
             double y,
@@ -192,5 +238,11 @@ namespace ReportTestts
 
             return sum / (z.Length - 1);
         }
+
+        private readonly record struct PolygonBounds(
+            double MinX,
+            double MaxX,
+            double MinY,
+            double MaxY);
     }
 }
