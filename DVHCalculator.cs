@@ -5,12 +5,17 @@ using PDF_Report_Final;
 
 namespace ReportTestts
 {
+    public readonly record struct DvhPlaneMatchDiagnostics(
+        int MatchedDosePlanes,
+        double MeanPlaneDistanceMm,
+        double MaxPlaneDistanceMm);
+
     /// <summary>
     /// DVH calculation (voxel-based, Monaco-like)
     /// </summary>
     public static class DVHCalculator
     {
-        private const double ContourPlaneToleranceMm = 1.0;
+        public const double DefaultContourPlaneToleranceMm = 1.0;
 
         // ============================================================
         // PATIENT (Unspecified Tissue)
@@ -32,6 +37,24 @@ namespace ReportTestts
             DicomDoseVolume dose,
             DicomStructureSet.Structure structure)
         {
+            return CalculateStructure(
+                dose,
+                structure,
+                DefaultContourPlaneToleranceMm,
+                out _);
+        }
+
+        public static DVHResult? CalculateStructure(
+            DicomDoseVolume dose,
+            DicomStructureSet.Structure structure,
+            double contourPlaneToleranceMm,
+            out DvhPlaneMatchDiagnostics geometryDiagnostics)
+        {
+            if (contourPlaneToleranceMm <= 0)
+                throw new ArgumentOutOfRangeException(
+                    nameof(contourPlaneToleranceMm),
+                    "Contour plane tolerance must be greater than zero.");
+
             Console.WriteLine($"[DVH] {structure.Name}");
 
             var doses = new List<double>();
@@ -39,16 +62,31 @@ namespace ReportTestts
             double dz = GetSliceThickness(dose.ZOffsets);
             double voxelVolumeCm3 = dose.Dx * dose.Dy * dz / 1000.0;
 
+            int matchedDosePlanes = 0;
+            double sumPlaneDistanceMm = 0;
+            double maxPlaneDistanceMm = 0;
+
             for (int k = 0; k < dose.Frames; k++)
             {
                 double z = dose.Origin[2] + dose.ZOffsets[k];
 
-                var slice = structure.Slices
-                    .OrderBy(s => Math.Abs(s.Z - z))
-                    .FirstOrDefault(s => Math.Abs(s.Z - z) < ContourPlaneToleranceMm);
+                var nearest = structure.Slices
+                    .Select(s => new
+                    {
+                        Slice = s,
+                        DistanceMm = Math.Abs(s.Z - z)
+                    })
+                    .OrderBy(x => x.DistanceMm)
+                    .FirstOrDefault();
 
-                if (slice == null)
+                if (nearest == null || nearest.DistanceMm >= contourPlaneToleranceMm)
                     continue;
+
+                matchedDosePlanes++;
+                sumPlaneDistanceMm += nearest.DistanceMm;
+                maxPlaneDistanceMm = Math.Max(maxPlaneDistanceMm, nearest.DistanceMm);
+
+                var slice = nearest.Slice;
 
                 for (int i = 0; i < dose.Rows; i++)
                     for (int j = 0; j < dose.Columns; j++)
@@ -59,6 +97,11 @@ namespace ReportTestts
                             doses.Add(dose.DoseGy[k, i, j]);
                     }
             }
+
+            geometryDiagnostics = new DvhPlaneMatchDiagnostics(
+                matchedDosePlanes,
+                matchedDosePlanes > 0 ? sumPlaneDistanceMm / matchedDosePlanes : 0,
+                maxPlaneDistanceMm);
 
             if (!doses.Any())
             {
