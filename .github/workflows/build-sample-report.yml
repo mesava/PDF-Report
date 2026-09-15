@@ -1,0 +1,107 @@
+name: Build sample report assets
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'examples/page-1.svg'
+      - 'examples/page-2.svg'
+      - 'examples/page-3.svg'
+      - '.github/workflows/build-sample-report.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install conversion dependencies
+        run: python -m pip install --disable-pip-version-check cairosvg pillow pypdf
+
+      - name: Build JPG previews and PDF
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from cairosvg import svg2png, svg2pdf
+          from PIL import Image
+          from pypdf import PdfReader, PdfWriter
+
+          examples = Path('examples')
+          temp = examples / '_generated'
+          temp.mkdir(exist_ok=True)
+
+          page_pdfs = []
+          for index in range(1, 4):
+              source = examples / f'page-{index}.svg'
+              png = temp / f'page-{index}.png'
+              jpg = examples / f'sample-report-page-{index}.jpg'
+              pdf = temp / f'page-{index}.pdf'
+
+              svg2png(
+                  url=str(source),
+                  write_to=str(png),
+                  output_width=1240,
+                  output_height=1754,
+              )
+
+              with Image.open(png) as image:
+                  image.convert('RGB').save(jpg, 'JPEG', quality=92, optimize=True)
+
+              svg2pdf(
+                  url=str(source),
+                  write_to=str(pdf),
+                  output_width=595,
+                  output_height=842,
+              )
+              page_pdfs.append(pdf)
+
+          writer = PdfWriter()
+          for path in page_pdfs:
+              reader = PdfReader(str(path))
+              for page in reader.pages:
+                  writer.add_page(page)
+
+          with (examples / 'sample-report.pdf').open('wb') as output:
+              writer.write(output)
+
+          for required in [
+              examples / 'sample-report-page-1.jpg',
+              examples / 'sample-report-page-2.jpg',
+              examples / 'sample-report-page-3.jpg',
+              examples / 'sample-report.pdf',
+          ]:
+              if not required.exists() or required.stat().st_size == 0:
+                  raise RuntimeError(f'Generated asset is missing: {required}')
+          PY
+
+          rm -rf examples/_generated
+
+      - name: Commit generated assets
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add examples/sample-report-page-1.jpg \
+                  examples/sample-report-page-2.jpg \
+                  examples/sample-report-page-3.jpg \
+                  examples/sample-report.pdf
+          if git diff --cached --quiet; then
+            echo "Sample assets are already up to date."
+            exit 0
+          fi
+          git commit -m "Generate sample report previews and PDF"
+          git push
