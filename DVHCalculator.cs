@@ -10,6 +10,8 @@ namespace ReportTestts
     /// </summary>
     public static class DVHCalculator
     {
+        private const double ContourPlaneToleranceMm = 1.0;
+
         // ============================================================
         // PATIENT (Unspecified Tissue)
         // ============================================================
@@ -43,7 +45,7 @@ namespace ReportTestts
 
                 var slice = structure.Slices
                     .OrderBy(s => Math.Abs(s.Z - z))
-                    .FirstOrDefault(s => Math.Abs(s.Z - z) < 2.5);
+                    .FirstOrDefault(s => Math.Abs(s.Z - z) < ContourPlaneToleranceMm);
 
                 if (slice == null)
                     continue;
