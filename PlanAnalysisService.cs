@@ -157,8 +157,8 @@ public sealed class PlanAnalysisService
 
             string geometryText =
                 $"matched planes={geometry.MatchedDosePlanes}, " +
-                $"mean ΔZ={geometry.MeanPlaneDistanceMm:F3} mm, " +
-                $"max ΔZ={geometry.MaxPlaneDistanceMm:F3} mm, " +
+                $"mean dZ={geometry.MeanPlaneDistanceMm:F3} mm, " +
+                $"max dZ={geometry.MaxPlaneDistanceMm:F3} mm, " +
                 $"tolerance={contourPlaneToleranceMm:F3} mm";
 
             return dvh == null
