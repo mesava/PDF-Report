@@ -22,6 +22,11 @@ public sealed class PlanAnalysisService
         if (string.IsNullOrWhiteSpace(request.JsonCriteriaFolder) || !Directory.Exists(request.JsonCriteriaFolder))
             throw new DirectoryNotFoundException($"JSON criteria folder not found: {request.JsonCriteriaFolder}");
 
+        if (request.ContourPlaneToleranceMm <= 0)
+            throw new ArgumentOutOfRangeException(
+                nameof(request.ContourPlaneToleranceMm),
+                "Contour plane tolerance must be greater than zero.");
+
         string jsonPath = Directory.GetFiles(request.JsonCriteriaFolder, "*.json").FirstOrDefault()
             ?? throw new FileNotFoundException("JSON criteria file not found.");
 
@@ -41,7 +46,10 @@ public sealed class PlanAnalysisService
 
         var dvhTasks = structs.Structures
             .Where(s => !IsTechnical(s.Name))
-            .Select(s => Task.Run(() => CalculateStructure(dose, s)))
+            .Select(s => Task.Run(() => CalculateStructure(
+                dose,
+                s,
+                request.ContourPlaneToleranceMm)))
             .ToList();
 
         var calculations = await Task.WhenAll(dvhTasks);
@@ -129,26 +137,42 @@ public sealed class PlanAnalysisService
             PlanPath = planPath,
             DosePath = dosePath,
             StructPath = structPath,
-            JsonPath = jsonPath
+            JsonPath = jsonPath,
+            ContourPlaneToleranceMm = request.ContourPlaneToleranceMm
         };
     }
 
     private static StructureDvhCalculation CalculateStructure(
         DicomDoseVolume dose,
-        DicomStructureSet.Structure structure)
+        DicomStructureSet.Structure structure,
+        double contourPlaneToleranceMm)
     {
         try
         {
-            var dvh = DVHCalculator.CalculateStructure(dose, structure);
+            var dvh = DVHCalculator.CalculateStructure(
+                dose,
+                structure,
+                contourPlaneToleranceMm,
+                out var geometry);
+
+            string geometryText =
+                $"matched planes={geometry.MatchedDosePlanes}, " +
+                $"mean ΔZ={geometry.MeanPlaneDistanceMm:F3} mm, " +
+                $"max ΔZ={geometry.MaxPlaneDistanceMm:F3} mm, " +
+                $"tolerance={contourPlaneToleranceMm:F3} mm";
 
             return dvh == null
-                ? new StructureDvhCalculation(null, $"[DVH] Structure skipped: {structure.Name} (no dose voxels).")
-                : new StructureDvhCalculation(dvh, null);
+                ? new StructureDvhCalculation(
+                    null,
+                    $"[DVH WARNING] {structure.Name}: no dose voxels; {geometryText}.")
+                : new StructureDvhCalculation(
+                    dvh,
+                    $"[DVH GEOMETRY] {structure.Name}: {geometryText}.");
         }
         catch (Exception ex)
         {
-            // Current Program skipped failed structures. Keep that behaviour for the
-            // first architecture-only refactor, but no longer hide the reason.
+            // Keep the current behaviour of skipping failed structures,
+            // but surface the exact reason in diagnostics.
             return new StructureDvhCalculation(
                 null,
                 $"[DVH ERROR] {structure.Name}: {ex.Message}");
