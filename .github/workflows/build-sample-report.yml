@@ -7,6 +7,7 @@ on:
       - 'examples/page-1.svg'
       - 'examples/page-2.svg'
       - 'examples/page-3.svg'
+      - 'examples/.sample-assets-trigger'
       - '.github/workflows/build-sample-report.yml'
   workflow_dispatch:
 
@@ -51,22 +52,12 @@ jobs:
               jpg = examples / f'sample-report-page-{index}.jpg'
               pdf = temp / f'page-{index}.pdf'
 
-              svg2png(
-                  url=str(source),
-                  write_to=str(png),
-                  output_width=1240,
-                  output_height=1754,
-              )
+              svg2png(url=str(source), write_to=str(png), output_width=1240, output_height=1754)
 
               with Image.open(png) as image:
                   image.convert('RGB').save(jpg, 'JPEG', quality=92, optimize=True)
 
-              svg2pdf(
-                  url=str(source),
-                  write_to=str(pdf),
-                  output_width=595,
-                  output_height=842,
-              )
+              svg2pdf(url=str(source), write_to=str(pdf), output_width=595, output_height=842)
               page_pdfs.append(pdf)
 
           writer = PdfWriter()
